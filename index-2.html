@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pit Wall Analyst · Formula 1 data, BigQuery ML and a Gemini race engineer</title>
+  <meta name="description" content="Formula 1 analytics 2018–2026: standings, team race-craft, pit stops, a podium prediction model tested on unseen races, and an AI race engineer that answers from the data.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+  <div class="banner">Independent student project using public data. Not affiliated with Formula 1, the FIA or any team.</div>
+
+  <header class="hero">
+    <div class="hero-inner">
+      <div>
+        <div class="kicker">Formula 1 analytics · <span id="heroSeasons"></span></div>
+        <h1>Pit Wall <span>Analyst</span></h1>
+        <p>Race data turned into decisions: who converts qualifying into results, whose pit crew is fastest, and a podium model tested on races it had never seen. An AI race engineer answers your questions from the same numbers.</p>
+        <div class="hero-tags">
+          <span class="tag">BigQuery</span><span class="tag">BigQuery ML</span><span class="tag">SQL</span>
+          <span class="tag">Gemini</span><span class="tag">JavaScript</span><span class="tag" id="heroRows"></span>
+        </div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <svg class="track" viewBox="0 0 420 260">
+          <path class="path" d="M60 200 C 20 200, 20 140, 60 130 L 170 110 C 200 104, 205 70, 240 62 L 340 44 C 390 36, 400 92, 360 104 L 300 122 C 270 130, 280 160, 310 166 L 350 176 C 392 186, 380 232, 340 230 Z"/>
+          <path class="racing" d="M60 200 C 20 200, 20 140, 60 130 L 170 110 C 200 104, 205 70, 240 62 L 340 44 C 390 36, 400 92, 360 104 L 300 122 C 270 130, 280 160, 310 166 L 350 176 C 392 186, 380 232, 340 230 Z"/>
+        </svg>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Sections">
+    <div class="tabs-inner">
+      <button class="tab active" data-tab="season">Season</button>
+      <button class="tab" data-tab="teams">Teams</button>
+      <button class="tab" data-tab="drivers">Drivers</button>
+      <button class="tab" data-tab="model">Podium model</button>
+      <button class="tab" data-tab="engineer">AI race engineer</button>
+      <button class="tab" data-tab="about">How it works</button>
+    </div>
+  </nav>
+
+  <main>
+    <!-- SEASON -->
+    <section class="panel active" id="season">
+      <h2 id="seasonTitle"></h2>
+      <p class="sub" id="seasonSub"></p>
+      <div class="grid g4" id="seasonStats"></div>
+      <div class="card mt">
+        <button class="view-toggle" data-for="progressChart">Table view</button>
+        <h3>Championship points, race by race</h3>
+        <p class="desc">Top five drivers, cumulative race and sprint points. Hover for each round.</p>
+        <div class="legend" id="progressLegend"></div>
+        <div id="progressChart"></div>
+      </div>
+      <div class="grid g2 mt">
+        <div class="card">
+          <h3>Drivers' standings</h3>
+          <p class="desc">Race and sprint points.</p>
+          <div class="table-wrap"><table id="driverTable"></table></div>
+        </div>
+        <div class="card">
+          <button class="view-toggle" data-for="teamChart">Table view</button>
+          <h3>Constructors' points</h3>
+          <p class="desc">Both cars, race and sprint.</p>
+          <div id="teamChart"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TEAMS -->
+    <section class="panel" id="teams">
+      <h2>Team race-craft</h2>
+      <p class="sub" id="teamsSub"></p>
+      <div class="card">
+        <button class="view-toggle" data-for="craftChart">Table view</button>
+        <h3>Where teams start vs. where they finish</h3>
+        <p class="desc">Average grid position (hollow) and average finishing position (solid). A line pointing left means the team usually gains places on Sunday. Finishes only; retirements are shown separately.</p>
+        <div class="legend"><span><i style="background:transparent;border:2px solid var(--text-secondary);width:10px;height:10px;border-radius:50%"></i>Avg grid</span><span><i style="background:var(--series-1);width:10px;height:10px;border-radius:50%"></i>Avg finish</span></div>
+        <div id="craftChart"></div>
+        <p class="note">Back-of-grid teams gain places more easily because cars ahead retire, so compare teams that start in similar places. Kick Sauber became Audi in 2026, so they appear as two rows.</p>
+      </div>
+      <div class="grid g2 mt">
+        <div class="card">
+          <button class="view-toggle" data-for="pitChart">Table view</button>
+          <h3 id="pitTitle">Pit-lane time</h3>
+          <p class="desc">Seconds slower than the fastest team, using each team's median time from pit entry to pit exit. Hover for actual times and slow stops.</p>
+          <div id="pitChart"></div>
+        </div>
+        <div class="card">
+          <button class="view-toggle" data-for="dnfChart">Table view</button>
+          <h3>Retirement rate</h3>
+          <p class="desc">Share of starts that ended without a classified finish (crashes and failures).</p>
+          <div id="dnfChart"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DRIVERS -->
+    <section class="panel" id="drivers">
+      <h2>Driver consistency</h2>
+      <p class="sub" id="driversSub"></p>
+      <div class="card">
+        <h3>Who delivers, race after race</h3>
+        <p class="desc">Click a column to sort. Spread is the standard deviation of finishing position: lower means more predictable results.</p>
+        <div class="table-wrap"><table id="consTable"></table></div>
+      </div>
+    </section>
+
+    <!-- MODEL -->
+    <section class="panel" id="model">
+      <h2>Podium prediction model</h2>
+      <p class="sub" id="modelSub"></p>
+      <div class="grid g2">
+        <div class="card">
+          <h3>The test: pick the podium before the race</h3>
+          <p class="desc" id="versusDesc"></p>
+          <div class="versus">
+            <div><div class="big win" id="hitsModel"></div><div class="of">Model</div></div>
+            <div class="vs">vs</div>
+            <div><div class="big lose" id="hitsGrid"></div><div class="of">"Top 3 on the grid" rule</div></div>
+          </div>
+          <p class="note" id="versusNote"></p>
+        </div>
+        <div class="card">
+          <h3>What the model learned</h3>
+          <p class="desc">Weight of each input after scaling them to the same range. Bigger bar = bigger effect on podium chances.</p>
+          <div id="weightChart"></div>
+        </div>
+      </div>
+      <div class="grid g3 mt" id="metricStats"></div>
+
+      <div class="grid g2 mt">
+        <div class="card">
+          <h3>Podium calculator</h3>
+          <p class="desc">Pick a driver and a starting position. Form is each driver's real average over the last 3 races.</p>
+          <div class="controls">
+            <label class="ctl">Driver<select id="calcDriver"></select></label>
+            <label class="ctl" style="flex:1">Starting position: <b id="gridOut"></b><input type="range" id="calcGrid" min="1" max="22" value="3"></label>
+            <label class="ctl" style="flex:1">Qualifying gap to pole: <b id="gapOut"></b><input type="range" id="calcGap" min="0" max="3" step="0.05" value="0.3"></label>
+          </div>
+          <div class="gauge"><div class="pct" id="calcPct"></div><div class="small" style="color:var(--text-secondary)">chance of a podium</div></div>
+          <div class="meter"><span id="calcBar"></span></div>
+          <p class="note" id="calcNote"></p>
+        </div>
+        <div class="card">
+          <h3>Replay a race</h3>
+          <p class="desc">The model's five most likely podium finishers vs. what actually happened. ✓ = finished on the podium.</p>
+          <div class="controls"><label class="ctl" style="flex:1">Race<select id="btRace"></select></label></div>
+          <div class="grid g2">
+            <div><div class="small" style="color:var(--text-secondary);margin-bottom:4px">Model's picks</div><ul class="picks" id="btPicks"></ul></div>
+            <div><div class="small" style="color:var(--text-secondary);margin-bottom:4px">Actual podium</div><ul class="picks" id="btPodium"></ul></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid g2 mt">
+        <div class="card">
+          <button class="view-toggle" data-for="winGridChart">Table view</button>
+          <h3>Why the grid matters so much</h3>
+          <p class="desc" id="winGridDesc"></p>
+          <div id="winGridChart"></div>
+        </div>
+        <div class="card">
+          <h3>Are the probabilities honest?</h3>
+          <p class="desc">When the model says 20%, does it happen about 20% of the time? Test races only.</p>
+          <div class="table-wrap"><table id="calibTable"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ENGINEER -->
+    <section class="panel" id="engineer">
+      <h2>AI race engineer</h2>
+      <p class="sub">Ask in plain English. Gemini answers <b>only</b> from this site's computed tables (standings, team stats, pit stops, model results) and says so when the data can't answer.</p>
+      <div class="card">
+        <div id="keyBox">
+          <h3>Connect Gemini (free)</h3>
+          <p class="desc">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>. It is stored only in this browser and sent only to Google.</p>
+          <div class="key-row"><input type="password" id="keyInput" placeholder="Paste your Gemini API key"><button class="btn" id="keySave">Save key</button></div>
+        </div>
+        <div id="chatBox" style="display:none">
+          <div class="chat" id="chat"></div>
+          <div class="chips" id="chips"></div>
+          <form class="chat-form" id="chatForm"><input type="text" id="chatInput" placeholder="e.g. Which team gains the most places on race day?" autocomplete="off"><button class="btn">Ask</button></form>
+          <p class="note"><span class="ok">●</span> Key saved in this browser · <a href="#" id="keyForget">Remove key</a></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ABOUT -->
+    <section class="panel" id="about">
+      <h2>How it works</h2>
+      <p class="sub">From raw race data to an AI analyst, in four steps.</p>
+      <div class="grid g2">
+        <div class="card">
+          <ol class="steps">
+            <li><b>Data.</b> <span id="aboutData"></span></li>
+            <li><b>BigQuery SQL.</b> The two tables are loaded into BigQuery; SQL builds the standings, team race-craft, pit-lane and pole statistics (<code>bigquery.sql</code>, steps 1–4).</li>
+            <li><b>BigQuery ML.</b> A logistic-regression model predicts a podium from four inputs known before the race: starting position (log scale), qualifying gap to pole, the driver's points in his last 3 races and the team's points per car in its last 3 races. It is trained on 2018–2024 and tested only on 2025–2026 (steps 5–9). The inputs were chosen using 2023–2024 as a validation window, so the test seasons were used once, at the end.</li>
+            <li><b>Gemini race engineer.</b> The computed tables are passed to Gemini with instructions to answer only from them, cite the numbers and say when the data cannot answer. Facts are computed by SQL; the AI only explains them.</li>
+          </ol>
+        </div>
+        <div class="card">
+          <h3>Limitations</h3>
+          <ul style="color:var(--text-secondary);padding-left:20px;margin:8px 0 0">
+            <li>The model does not know about weather, penalties, safety cars or crashes, which decide many podiums.</li>
+            <li>Its gain over the simple grid rule is modest; most of the information is in the starting grid.</li>
+            <li>Pit-lane time includes the drive through the pit lane, so it differs by circuit and is not the stationary stop time.</li>
+            <li>Data is a snapshot (see the date in the footer), not live.</li>
+          </ul>
+          <h3 class="mt">Data credit</h3>
+          <p style="color:var(--text-secondary);margin:6px 0 0">Race data from <a href="https://github.com/f1db/f1db" target="_blank" rel="noopener">F1DB</a>, licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>, reshaped into two tables for this project. Formula 1 and F1 are trademarks of Formula One Licensing B.V.; this site is not affiliated with them.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div id="footerData"></div>
+    <div>Built by <b>Anjali Bhushan</b> · <a href="https://github.com/anjali-bhushan">GitHub</a></div>
+  </footer>
+
+  <div id="tooltip" role="status"></div>
+  <script src="data.js?v=1"></script>
+  <script src="app.js?v=1"></script>
+  <script src="agent.js?v=1"></script>
+</body>
+</html>
